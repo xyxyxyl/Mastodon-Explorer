@@ -422,7 +422,7 @@ const App: React.FC = () => {
                 )}
                 {testResult.status === "success"
                   ? "令牌有效 ✓"
-                  : "测试令牌并查找身份"}
+                  : "测试令牌并验证身份"}
               </button>
               <button
                 type="submit"
@@ -478,10 +478,10 @@ const App: React.FC = () => {
           </div>
 
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            正在同步您的动态数据
+            正在同步动态数据
           </h2>
           <p className="text-gray-500 mb-6 max-w-sm">
-            我们正在安全地从 Mastodon 实例获取您的历史嘟文，请稍等片刻...
+            正在从 Mastodon 实例获取历史嘟文，请稍等片刻...
           </p>
 
           <div className="inline-flex items-center gap-2 bg-indigo-50 px-6 py-3 rounded-2xl">
