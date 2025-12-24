@@ -1,0 +1,5 @@
+{
+  "name": "Mastodon Activity Explorer",
+  "description": "A sophisticated dashboard to visualize your Mastodon activity with heat maps, chronological views, and AI-powered status analysis.",
+  "requestFramePermissions": []
+}
