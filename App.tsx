@@ -296,9 +296,9 @@ const App: React.FC = () => {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold">私有动态面板</h1>
+            <h1 className="text-2xl font-bold">动态面板</h1>
             <p className="text-xs text-gray-400 mt-2">
-              基于令牌自动识别身份，隐私更安全
+              基于令牌自动识别身份，仅本人可查看嘟文
             </p>
           </div>
 
@@ -334,8 +334,8 @@ const App: React.FC = () => {
                     />
                   </svg>
                   <span>
-                    若token仅 read:accounts权限抓取公开嘟文，如包含
-                    read:statuses抓取全部嘟文
+                    若token仅包括read:accounts权限则只抓取公开嘟文，如包含
+                    read:statuses则抓取全部嘟文
                   </span>
                 </p>
               </div>
