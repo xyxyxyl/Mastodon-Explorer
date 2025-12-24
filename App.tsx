@@ -827,10 +827,10 @@ const App: React.FC = () => {
               <div className="flex items-center justify-between px-1">
                 <div className="flex flex-col">
                   <span className="text-sm font-bold text-gray-700">
-                    仅原创/线程
+                    仅原创/个人回复
                   </span>
                   <span className="text-[10px] text-gray-400">
-                    排除对他人的回复
+                    过滤对他人的回复
                   </span>
                 </div>
                 <button
