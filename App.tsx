@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [rawStatuses, setRawStatuses] = useState<MastodonStatus[]>([]);
   const [lastId, setLastId] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingAll, setIsFetchingAll] = useState(false); // 新增;
   const [hasReadStatuses, setHasReadStatuses] = useState<boolean>(true);
   const [fetchCount, setFetchCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -247,8 +248,8 @@ const App: React.FC = () => {
   };
 
   const handleFetchAllHistory = async () => {
-    if (!mastodonService || !account || isLoading) return;
-    setIsLoading(true);
+    if (!mastodonService || !account || isLoading || isFetchingAll) return;
+    setIsFetchingAll(true);
     try {
       const threshold = new Date(0);
       const {
@@ -267,7 +268,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       setError("获取全部历史失败");
     } finally {
-      setIsLoading(false);
+      setIsFetchingAll(false);
     }
   };
 
@@ -662,7 +663,7 @@ const App: React.FC = () => {
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => handleExploreMore(3)}
-                disabled={isLoading}
+                disabled={isLoading || isFetchingAll}
                 className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold border transition-all ${
                   isLoading
                     ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
@@ -688,28 +689,33 @@ const App: React.FC = () => {
                 )}
                 探索更多 3 个月历史
               </button>
+
               <button
                 onClick={handleFetchAllHistory}
-                disabled={isLoading}
+                disabled={isLoading || isFetchingAll}
                 className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
-                  isLoading
+                  isLoading || isFetchingAll
                     ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                     : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md"
                 }`}
               >
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                  />
-                </svg>
+                {isFetchingAll ? (
+                  <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin"></div>
+                ) : (
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                    />
+                  </svg>
+                )}
                 抓取全部历史记录
               </button>
             </div>
