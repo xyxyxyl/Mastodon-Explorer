@@ -8,6 +8,7 @@ import {
 import { MastodonService } from "./services/mastodon";
 import ActivityHeatmap from "./components/ActivityHeatmap";
 import StatusCard from "./components/StatusCard";
+import MonthlyChart from "./components/MonthlyChart";
 
 const App: React.FC = () => {
   const [auth, setAuth] = useState<AuthState | null>(() => {
@@ -16,7 +17,7 @@ const App: React.FC = () => {
   });
 
   const [account, setAccount] = useState<MastodonAccount | null>(null);
-  const [statuses, setStatuses] = useState<MastodonStatus[]>([]);
+  const [rawStatuses, setRawStatuses] = useState<MastodonStatus[]>([]);
   const [lastId, setLastId] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(false);
   const [hasReadStatuses, setHasReadStatuses] = useState<boolean>(true);
@@ -33,7 +34,9 @@ const App: React.FC = () => {
   const [tempStartDate, setTempStartDate] = useState("");
   const [tempEndDate, setTempEndDate] = useState("");
   const [isHeatmapModalOpen, setIsHeatmapModalOpen] = useState(false);
+  const [isMonthlyModalOpen, setIsMonthlyModalOpen] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [showOriginalOnly, setShowOriginalOnly] = useState(false);
 
   // Login Form States
   const [instanceInput, setInstanceInput] = useState(auth?.instance || "");
@@ -75,7 +78,7 @@ const App: React.FC = () => {
         undefined,
         (count) => setFetchCount(count)
       );
-      setStatuses(initialPosts);
+      setRawStatuses(initialPosts);
       setLastId(newLastId);
       setHasReadStatuses(!fellBack);
     } catch (err: any) {
@@ -88,69 +91,11 @@ const App: React.FC = () => {
     }
   }, [mastodonService, auth, fetchAllOnStart]);
 
-  const handleExploreMore = async (months: number = 3) => {
-    if (!mastodonService || !account || isLoading) return;
-    setIsLoading(true);
-    try {
-      const oldestTootDate =
-        statuses.length > 0
-          ? new Date(statuses[statuses.length - 1].created_at)
-          : new Date();
-
-      const threshold = new Date(oldestTootDate);
-      threshold.setMonth(threshold.getMonth() - months);
-
-      const {
-        statuses: moreStatuses,
-        lastId: newLastId,
-        fellBack,
-      } = await mastodonService.getStatusesUntil(
-        account.id,
-        threshold,
-        lastId,
-        (count) => setFetchCount(statuses.length + count)
-      );
-
-      setStatuses((prev) => [...prev, ...moreStatuses]);
-      setLastId(newLastId);
-      if (fellBack) setHasReadStatuses(false);
-    } catch (err: any) {
-      setError("加载更多失败");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleFetchAllHistory = async () => {
-    if (!mastodonService || !account || isLoading) return;
-    setIsLoading(true);
-    try {
-      const threshold = new Date(0);
-      const {
-        statuses: moreStatuses,
-        lastId: newLastId,
-        fellBack,
-      } = await mastodonService.getStatusesUntil(
-        account.id,
-        threshold,
-        lastId,
-        (count) => setFetchCount(statuses.length + count)
-      );
-      setStatuses((prev) => [...prev, ...moreStatuses]);
-      setLastId(newLastId);
-      if (fellBack) setHasReadStatuses(false);
-    } catch (err: any) {
-      setError("获取全部历史失败");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    if (auth) {
+    if (auth && !account) {
       fetchInitialData();
     }
-  }, [auth, fetchInitialData]);
+  }, [auth, account, fetchInitialData]);
 
   useEffect(() => {
     const handleScroll = () => setShowBackToTop(window.scrollY > 300);
@@ -158,43 +103,11 @@ const App: React.FC = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
-
-  const handleTestAuth = async () => {
-    const trimmedToken = tokenInput.trim();
-    if (!instanceInput || !trimmedToken) {
-      setTestResult({ status: "error", message: "请填写实例地址和访问令牌" });
-      return;
-    }
-    setTestResult({ status: "testing" });
-    try {
-      const tempService = new MastodonService(instanceInput, trimmedToken);
-      const acc = await tempService.verifyCredentials();
-      setTestResult({
-        status: "success",
-        message: `连接成功！已识别为您：${acc.display_name} (@${acc.username})`,
-      });
-    } catch (err: any) {
-      setTestResult({ status: "error", message: `连接失败: ${err.message}` });
-    }
-  };
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedToken = tokenInput.trim();
-    if (!instanceInput || !trimmedToken) return;
-    const newAuth: AuthState = {
-      instance: instanceInput,
-      token: trimmedToken,
-    };
-    setAuth(newAuth);
-    localStorage.setItem("mastodon_auth", JSON.stringify(newAuth));
-  };
-
   const handleLogout = () => {
     setAuth(null);
     setAccount(null);
-    setStatuses([]);
+    setRawStatuses([]);
+    setLastId(undefined);
     setSelectedMonth(null);
     setSelectedDate(null);
     setFilterStartDate("");
@@ -203,12 +116,26 @@ const App: React.FC = () => {
     setAppliedSearchQuery("");
     setTestResult({ status: "idle" });
     setHasReadStatuses(true);
+    setShowOriginalOnly(false);
     localStorage.removeItem("mastodon_auth");
   };
 
+  /**
+   * 核心基础过滤逻辑：
+   * 在全局数据层执行。如果开启“仅原创”，则过滤掉对他人的回复帖，但保留原创帖和对自己嘟文的回复（线程）。
+   */
+  const baseStatuses = useMemo(() => {
+    if (!showOriginalOnly || !account) return rawStatuses;
+    return rawStatuses.filter((s) => {
+      if (!s.in_reply_to_id && !s.in_reply_to_account_id) return true;
+      if (s.in_reply_to_account_id === account.id) return true;
+      return false;
+    });
+  }, [rawStatuses, showOriginalOnly, account]);
+
   const timelineGroups = useMemo(() => {
     const groups: Record<string, { label: string; count: number }> = {};
-    statuses.forEach((s) => {
+    baseStatuses.forEach((s) => {
       if (!s.created_at) return;
       const key = s.created_at.substring(0, 7);
       if (!groups[key]) {
@@ -218,10 +145,11 @@ const App: React.FC = () => {
       groups[key].count++;
     });
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [statuses]);
+  }, [baseStatuses]);
 
   const filteredStatuses = useMemo(() => {
-    let result = statuses;
+    let result = baseStatuses;
+
     if (appliedSearchQuery.trim()) {
       const query = appliedSearchQuery.toLowerCase();
       result = result.filter((s) => {
@@ -254,7 +182,7 @@ const App: React.FC = () => {
     }
     return result;
   }, [
-    statuses,
+    baseStatuses,
     appliedSearchQuery,
     selectedMonth,
     selectedDate,
@@ -262,20 +190,117 @@ const App: React.FC = () => {
     filterEndDate,
   ]);
 
-  const lastTootDate = statuses.length > 0 ? statuses[0].created_at : undefined;
-  const oldestTootDate =
-    statuses.length > 0 ? statuses[statuses.length - 1].created_at : undefined;
-
   const activityData = useMemo((): ActivityData[] => {
     const counts: Record<string, number> = {};
-    statuses.forEach((s) => {
+    baseStatuses.forEach((s) => {
       if (!s.created_at) return;
       const date = s.created_at.split("T")[0];
       counts[date] = (counts[date] || 0) + 1;
     });
     return Object.entries(counts).map(([date, count]) => ({ date, count }));
-  }, [statuses]);
+  }, [baseStatuses]);
 
+  const lastTootDate =
+    rawStatuses.length > 0 ? rawStatuses[0].created_at : undefined;
+  const oldestTootDate =
+    rawStatuses.length > 0
+      ? rawStatuses[rawStatuses.length - 1].created_at
+      : undefined;
+
+  const handleMonthSelection = useCallback((monthKey: string) => {
+    setSelectedMonth(monthKey);
+    setSelectedDate(null);
+    setFilterStartDate("");
+    setFilterEndDate("");
+    setIsMonthlyModalOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const handleExploreMore = async (months: number = 3) => {
+    if (!mastodonService || !account || isLoading) return;
+    setIsLoading(true);
+    try {
+      const oldestDate =
+        rawStatuses.length > 0
+          ? new Date(rawStatuses[rawStatuses.length - 1].created_at)
+          : new Date();
+      const threshold = new Date(oldestDate);
+      threshold.setMonth(threshold.getMonth() - months);
+      const {
+        statuses: moreStatuses,
+        lastId: newLastId,
+        fellBack,
+      } = await mastodonService.getStatusesUntil(
+        account.id,
+        threshold,
+        lastId,
+        (count) => setFetchCount(rawStatuses.length + count)
+      );
+      setRawStatuses((prev) => [...prev, ...moreStatuses]);
+      setLastId(newLastId);
+      if (fellBack) setHasReadStatuses(false);
+    } catch (err: any) {
+      setError("加载更多失败");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFetchAllHistory = async () => {
+    if (!mastodonService || !account || isLoading) return;
+    setIsLoading(true);
+    try {
+      const threshold = new Date(0);
+      const {
+        statuses: moreStatuses,
+        lastId: newLastId,
+        fellBack,
+      } = await mastodonService.getStatusesUntil(
+        account.id,
+        threshold,
+        lastId,
+        (count) => setFetchCount(rawStatuses.length + count)
+      );
+      setRawStatuses((prev) => [...prev, ...moreStatuses]);
+      setLastId(newLastId);
+      if (fellBack) setHasReadStatuses(false);
+    } catch (err: any) {
+      setError("获取全部历史失败");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleTestAuth = async () => {
+    const trimmedToken = tokenInput.trim();
+    if (!instanceInput || !trimmedToken) return;
+    setTestResult({ status: "testing" });
+    try {
+      const tempService = new MastodonService(instanceInput, trimmedToken);
+      const acc = await tempService.verifyCredentials();
+      setTestResult({
+        status: "success",
+        message: `连接成功！已识别为您：${acc.display_name} (@${acc.username})`,
+      });
+    } catch (err: any) {
+      setTestResult({ status: "error", message: `连接失败: ${err.message}` });
+    }
+  };
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!instanceInput || !tokenInput.trim()) return;
+    const newAuth: AuthState = {
+      instance: instanceInput,
+      token: tokenInput.trim(),
+    };
+    setAuth(newAuth);
+    localStorage.setItem("mastodon_auth", JSON.stringify(newAuth));
+  };
+
+  const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
+
+  // 1. 未登录状态：显示登录表单
   if (!auth) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gray-50 text-gray-900">
@@ -296,12 +321,11 @@ const App: React.FC = () => {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold">私有动态面板</h1>
+            <h1 className="text-2xl font-bold">动态面板</h1>
             <p className="text-xs text-gray-400 mt-2">
-              基于令牌自动识别身份，隐私更安全
+              基于令牌自动识别身份，仅本人可查看嘟文
             </p>
           </div>
-
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -334,8 +358,7 @@ const App: React.FC = () => {
                     />
                   </svg>
                   <span>
-                    若token仅 read:accounts权限抓取公开嘟文，如包含
-                    read:statuses抓取全部嘟文
+                    若token仅包括read:accounts权限则只抓取公开嘟文，如包含read:statuses则抓取全部嘟文
                   </span>
                 </p>
               </div>
@@ -348,7 +371,6 @@ const App: React.FC = () => {
                 required
               />
             </div>
-
             <div className="py-1">
               <div className="flex items-center gap-2 mb-1">
                 <input
@@ -382,7 +404,6 @@ const App: React.FC = () => {
                 </p>
               </div>
             </div>
-
             <div className="pt-2 flex flex-col gap-3">
               <button
                 type="button"
@@ -403,7 +424,6 @@ const App: React.FC = () => {
                   ? "令牌有效 ✓"
                   : "测试令牌并查找身份"}
               </button>
-
               <button
                 type="submit"
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg shadow-md transition-colors"
@@ -411,7 +431,6 @@ const App: React.FC = () => {
                 进入面板
               </button>
             </div>
-
             {testResult.message && (
               <div
                 className={`text-xs p-3 rounded-lg border animate-in fade-in zoom-in-95 duration-200 ${
@@ -429,6 +448,58 @@ const App: React.FC = () => {
     );
   }
 
+  // 2. 初始同步中：显示居中加载组件
+  if (isLoading && rawStatuses.length === 0) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-8 relative overflow-hidden">
+        {/* 背景装饰 */}
+        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-indigo-100 rounded-full blur-3xl opacity-50 animate-pulse"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-blue-100 rounded-full blur-3xl opacity-50 animate-pulse delay-700"></div>
+
+        <div className="relative z-10 flex flex-col items-center text-center">
+          <div className="w-24 h-24 relative mb-8">
+            <div className="absolute inset-0 border-4 border-indigo-50 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <svg
+                className="w-10 h-10 text-indigo-600"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+          </div>
+
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            正在同步您的动态数据
+          </h2>
+          <p className="text-gray-500 mb-6 max-w-sm">
+            我们正在安全地从 Mastodon 实例获取您的历史嘟文，请稍等片刻...
+          </p>
+
+          <div className="inline-flex items-center gap-2 bg-indigo-50 px-6 py-3 rounded-2xl">
+            <div className="w-2 h-2 bg-indigo-600 rounded-full animate-bounce"></div>
+            <span className="text-indigo-700 font-bold text-lg">
+              已抓取 {fetchCount} 条
+            </span>
+          </div>
+
+          <p className="mt-8 text-[10px] text-gray-300 uppercase tracking-widest font-bold">
+            穿越时间轴中...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. 已有数据：显示主面板
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
@@ -484,8 +555,8 @@ const App: React.FC = () => {
 
       <main className="flex-1 max-w-[1600px] w-full mx-auto p-4 md:p-6 lg:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          <aside className="lg:col-span-3 flex flex-col gap-4 sticky top-24 max-h-[calc(100vh-120px)]">
-            <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm overflow-y-auto custom-scrollbar max-h-[40vh]">
+          <aside className="lg:col-span-3 flex flex-col gap-4 sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar pr-2">
+            <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm max-h-[30vh] overflow-y-auto custom-scrollbar">
               <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-4 px-2">
                 历史回顾
               </h3>
@@ -516,7 +587,7 @@ const App: React.FC = () => {
                         : "bg-gray-100 text-gray-500"
                     }`}
                   >
-                    {statuses.length}
+                    {baseStatuses.length}
                   </span>
                 </button>
                 {timelineGroups.map(([key, group]) => (
@@ -549,6 +620,7 @@ const App: React.FC = () => {
                 ))}
               </div>
             </div>
+
             <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm space-y-3">
               <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] px-2">
                 按日期范围筛选
@@ -586,6 +658,7 @@ const App: React.FC = () => {
                 </button>
               </div>
             </div>
+
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => handleExploreMore(3)}
@@ -646,7 +719,7 @@ const App: React.FC = () => {
             <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-800">
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                     {appliedSearchQuery
                       ? "搜索结果"
                       : selectedDate
@@ -657,6 +730,11 @@ const App: React.FC = () => {
                       : filterStartDate || filterEndDate
                       ? "日期范围筛选"
                       : "动态概览"}
+                    {showOriginalOnly && (
+                      <span className="text-[10px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded-full font-bold">
+                        仅原创/线程
+                      </span>
+                    )}
                   </h2>
                   {(selectedDate ||
                     selectedMonth ||
@@ -700,7 +778,7 @@ const App: React.FC = () => {
                 >
                   <input
                     type="text"
-                    placeholder="输入关键词按回车搜索..."
+                    placeholder="搜索关键词..."
                     className="w-full pl-10 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-full text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                     value={searchInputValue}
                     onChange={(e) => setSearchInputValue(e.target.value)}
@@ -722,32 +800,54 @@ const App: React.FC = () => {
               </div>
             </div>
 
-            {isLoading && statuses.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-24 gap-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
-                <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
-                <p className="text-gray-500 font-medium text-sm tracking-wide animate-pulse">
-                  正在同步动态 ({fetchCount})...
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {filteredStatuses.map((status) => (
-                  <StatusCard key={status.id} status={status} />
-                ))}
-                {filteredStatuses.length === 0 && !isLoading && (
-                  <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
-                    <p className="text-gray-400 text-sm">
-                      {appliedSearchQuery
-                        ? `未找到包含 "${appliedSearchQuery}" 的动态`
-                        : "此筛选条件下没有任何嘟文。"}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+            <div className="flex flex-col gap-4">
+              {filteredStatuses.map((status) => (
+                <StatusCard key={status.id} status={status} />
+              ))}
+              {filteredStatuses.length === 0 && !isLoading && (
+                <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
+                  <p className="text-gray-400 text-sm">
+                    此筛选条件下没有任何嘟文。
+                  </p>
+                </div>
+              )}
+              {isLoading && rawStatuses.length > 0 && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                </div>
+              )}
+            </div>
           </section>
 
           <aside className="lg:col-span-3 flex flex-col gap-6 sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar">
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] px-1">
+                全局视图过滤
+              </h3>
+              <div className="flex items-center justify-between px-1">
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold text-gray-700">
+                    仅原创/线程
+                  </span>
+                  <span className="text-[10px] text-gray-400">
+                    排除对他人的回复
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowOriginalOnly(!showOriginalOnly)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                    showOriginalOnly ? "bg-indigo-600" : "bg-gray-200"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      showOriginalOnly ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
             <div onClick={() => setIsHeatmapModalOpen(true)}>
               <ActivityHeatmap
                 data={activityData}
@@ -755,8 +855,16 @@ const App: React.FC = () => {
                 endDateProp={lastTootDate}
               />
             </div>
+
+            <div onClick={() => setIsMonthlyModalOpen(true)}>
+              <MonthlyChart
+                groups={timelineGroups}
+                onPointClick={handleMonthSelection}
+              />
+            </div>
+
             {!hasReadStatuses && (
-              <div className="bg-indigo-600 p-6 rounded-2xl text-white shadow-lg animate-in slide-in-from-right-4 duration-500">
+              <div className="bg-indigo-600 p-6 rounded-2xl text-white shadow-lg">
                 <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
                   <svg
                     className="w-4 h-4"
@@ -773,12 +881,8 @@ const App: React.FC = () => {
                   </svg>
                   权限状态提示
                 </h4>
-                <p className="text-xs text-indigo-100 leading-relaxed">
-                  当前仅同步了公开嘟文。如果您想查看隐藏或仅关注者可见的动态，请确保令牌包含{" "}
-                  <code className="bg-indigo-800 px-1 rounded">
-                    read:statuses
-                  </code>{" "}
-                  权限并重新登录。
+                <p className="text-xs text-indigo-100">
+                  当前仅同步了公开嘟文。建议重新登录并授予 read:statuses 权限。
                 </p>
               </div>
             )}
@@ -786,18 +890,12 @@ const App: React.FC = () => {
         </div>
       </main>
 
+      {/* 弹窗部分 */}
       {isHeatmapModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 flex flex-col">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0">
-              <div>
-                <h3 className="text-xl font-bold text-gray-900">
-                  活跃足迹全景
-                </h3>
-                <p className="text-xs text-gray-400 mt-1">
-                  点击色块过滤对应日期的嘟文
-                </p>
-              </div>
+              <h3 className="text-xl font-bold text-gray-900">活跃足迹全景</h3>
               <button
                 onClick={() => setIsHeatmapModalOpen(false)}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -826,17 +924,47 @@ const App: React.FC = () => {
                   setSelectedDate(date);
                   setSelectedMonth(null);
                   setIsHeatmapModalOpen(false);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
                 isLarge={true}
               />
             </div>
-            <div className="p-6 bg-gray-50 border-t border-gray-100 flex justify-end">
+          </div>
+        </div>
+      )}
+
+      {isMonthlyModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0">
+              <h3 className="text-xl font-bold text-gray-900">
+                月度发布趋势全景
+              </h3>
               <button
-                onClick={() => setIsHeatmapModalOpen(false)}
-                className="px-6 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors"
+                onClick={() => setIsMonthlyModalOpen(false)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                关闭视图
+                <svg
+                  className="w-6 h-6 text-gray-400"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
               </button>
+            </div>
+            <div className="p-8 overflow-auto max-h-[80vh]">
+              <MonthlyChart
+                groups={timelineGroups}
+                isLarge={true}
+                onPointClick={handleMonthSelection}
+              />
             </div>
           </div>
         </div>
@@ -844,12 +972,11 @@ const App: React.FC = () => {
 
       <button
         onClick={scrollToTop}
-        className={`fixed bottom-8 right-8 z-[50] p-4 bg-indigo-600 text-white rounded-full shadow-2xl transition-all duration-300 transform hover:bg-indigo-700 hover:scale-110 ${
+        className={`fixed bottom-8 right-8 z-[50] p-4 bg-indigo-600 text-white rounded-full shadow-2xl transition-all duration-300 transform ${
           showBackToTop
             ? "opacity-100 translate-y-0"
             : "opacity-0 translate-y-10 pointer-events-none"
         }`}
-        aria-label="回到顶部"
       >
         <svg
           className="w-6 h-6"
@@ -868,10 +995,10 @@ const App: React.FC = () => {
 
       <footer className="bg-white border-t border-gray-200 py-10 text-center mt-12">
         <p className="text-[10px] font-bold text-gray-300 uppercase tracking-[0.3em]">
-          Built with D3.js • Mastodon Activity Explorer
+          Built with D3.js • Activity Explorer
         </p>
       </footer>
-      <style>{`.custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; } .custom-scrollbar::-webkit-scrollbar-track { background: transparent; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; } .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #d1d5db; }`}</style>
+      <style>{`.custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; } .custom-scrollbar::-webkit-scrollbar-track { background: transparent; } .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }`}</style>
     </div>
   );
 };
