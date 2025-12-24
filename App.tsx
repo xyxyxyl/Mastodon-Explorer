@@ -34,6 +34,7 @@ const App: React.FC = () => {
   const [tempEndDate, setTempEndDate] = useState("");
   const [isHeatmapModalOpen, setIsHeatmapModalOpen] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [showOriginalOnly, setShowOriginalOnly] = useState(false);
 
   // Login Form States
   const [instanceInput, setInstanceInput] = useState(auth?.instance || "");
@@ -203,12 +204,21 @@ const App: React.FC = () => {
     setAppliedSearchQuery("");
     setTestResult({ status: "idle" });
     setHasReadStatuses(true);
+    setShowOriginalOnly(false);
     localStorage.removeItem("mastodon_auth");
   };
 
+  // Base statuses after applying the "Original Only" filter
+  // This ensures statistics and heatmaps stay consistent with the global toggle.
+  const baseStatuses = useMemo(() => {
+    return showOriginalOnly
+      ? statuses.filter((s) => s.in_reply_to_id === null)
+      : statuses;
+  }, [statuses, showOriginalOnly]);
+
   const timelineGroups = useMemo(() => {
     const groups: Record<string, { label: string; count: number }> = {};
-    statuses.forEach((s) => {
+    baseStatuses.forEach((s) => {
       if (!s.created_at) return;
       const key = s.created_at.substring(0, 7);
       if (!groups[key]) {
@@ -218,10 +228,11 @@ const App: React.FC = () => {
       groups[key].count++;
     });
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [statuses]);
+  }, [baseStatuses]);
 
   const filteredStatuses = useMemo(() => {
-    let result = statuses;
+    let result = baseStatuses;
+
     if (appliedSearchQuery.trim()) {
       const query = appliedSearchQuery.toLowerCase();
       result = result.filter((s) => {
@@ -254,7 +265,7 @@ const App: React.FC = () => {
     }
     return result;
   }, [
-    statuses,
+    baseStatuses,
     appliedSearchQuery,
     selectedMonth,
     selectedDate,
@@ -268,13 +279,13 @@ const App: React.FC = () => {
 
   const activityData = useMemo((): ActivityData[] => {
     const counts: Record<string, number> = {};
-    statuses.forEach((s) => {
+    baseStatuses.forEach((s) => {
       if (!s.created_at) return;
       const date = s.created_at.split("T")[0];
       counts[date] = (counts[date] || 0) + 1;
     });
     return Object.entries(counts).map(([date, count]) => ({ date, count }));
-  }, [statuses]);
+  }, [baseStatuses]);
 
   if (!auth) {
     return (
@@ -296,9 +307,9 @@ const App: React.FC = () => {
                 />
               </svg>
             </div>
-            <h1 className="text-2xl font-bold">动态面板</h1>
+            <h1 className="text-2xl font-bold">私有动态面板</h1>
             <p className="text-xs text-gray-400 mt-2">
-              基于令牌自动识别身份，仅本人可查看嘟文
+              基于令牌自动识别身份，隐私更安全
             </p>
           </div>
 
@@ -334,8 +345,8 @@ const App: React.FC = () => {
                     />
                   </svg>
                   <span>
-                    若token仅包括read:accounts权限则只抓取公开嘟文，如包含
-                    read:statuses则抓取全部嘟文
+                    若token仅 read:accounts权限抓取公开嘟文，如包含
+                    read:statuses抓取全部嘟文
                   </span>
                 </p>
               </div>
@@ -516,7 +527,7 @@ const App: React.FC = () => {
                         : "bg-gray-100 text-gray-500"
                     }`}
                   >
-                    {statuses.length}
+                    {baseStatuses.length}
                   </span>
                 </button>
                 {timelineGroups.map(([key, group]) => (
@@ -737,7 +748,11 @@ const App: React.FC = () => {
                 {filteredStatuses.length === 0 && !isLoading && (
                   <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
                     <p className="text-gray-400 text-sm">
-                      {appliedSearchQuery
+                      {showOriginalOnly &&
+                      filteredStatuses.length === 0 &&
+                      statuses.length > 0
+                        ? "当前视图已过滤掉回复，没有原创内容。"
+                        : appliedSearchQuery
                         ? `未找到包含 "${appliedSearchQuery}" 的动态`
                         : "此筛选条件下没有任何嘟文。"}
                     </p>
@@ -755,6 +770,37 @@ const App: React.FC = () => {
                 endDateProp={lastTootDate}
               />
             </div>
+
+            {/* View Filter Card */}
+            <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm space-y-4">
+              <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] px-1">
+                视图过滤
+              </h3>
+              <div className="flex items-center justify-between px-1">
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold text-gray-700">
+                    仅原创内容
+                  </span>
+                  <span className="text-[10px] text-gray-400">排除回复贴</span>
+                </div>
+                <button
+                  onClick={() => setShowOriginalOnly(!showOriginalOnly)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                    showOriginalOnly ? "bg-indigo-600" : "bg-gray-200"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      showOriginalOnly ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-300 px-1 italic">
+                ※ 开启后热力图与统计将仅包含原创嘟文
+              </p>
+            </div>
+
             {!hasReadStatuses && (
               <div className="bg-indigo-600 p-6 rounded-2xl text-white shadow-lg animate-in slide-in-from-right-4 duration-500">
                 <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
