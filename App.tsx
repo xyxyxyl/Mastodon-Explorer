@@ -364,7 +364,7 @@ const App: React.FC = () => {
               </div>
               <input
                 type="password"
-                placeholder="粘贴您的令牌"
+                placeholder="粘贴令牌"
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
                 className="w-full mt-2 px-4 py-2.5 rounded-lg border border-gray-200 focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-sm"
