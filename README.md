@@ -1,20 +1,25 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Mastodon Activity Explorer 🐘
 
-# Run and deploy your AI Studio app
+一个基于 React 和 Vite 开发的轻量级 Mastodon 社交动态探索工具。它可以帮助用户获取并可视化展示 Mastodon 上的公开状态信息。
 
-This contains everything you need to run your app locally.
+## ✨ 特性
 
-View your app in AI Studio: https://ai.studio/apps/drive/1SrB7GmorVbwgYHt-6PDw5fDM2bcxwqIU
+- **动态抓取**：实时获取 Mastodon 指定实例的公开动态。
+- **数据可视化**：利用 **D3.js** 对社交数据进行图形化展示（如活跃度、关系等）。
+- **极速体验**：基于 **Vite 6** 构建，享受毫秒级的热更新和极快的加载速度。
+- **现代化技术栈**：使用 React 19 和 TypeScript 开发，代码结构清晰。
 
-## Run Locally
+## 🛠️ 技术栈
 
-**Prerequisites:**  Node.js
+- **框架**: [React 19](https://react.dev/)
+- **构建工具**: [Vite 6](https://vitejs.dev/)
+- **可视化**: [D3.js](https://d3js.org/)
+- **语言**: [TypeScript](https://www.typescriptlang.org/)
+- **部署**: [Vercel](https://vercel.com/)
 
+## 🚀 本地开发步骤
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. **克隆项目**
+   ```bash
+   git clone [https://github.com/xyxyxyl/Mastodon-Explorer.git](https://github.com/xyxyxyl/Mastodon-Explorer.git)
+   cd Mastodon-Explorer
