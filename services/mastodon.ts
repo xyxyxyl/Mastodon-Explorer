@@ -116,7 +116,7 @@ export class MastodonService {
     let wasFellBack = false;
 
     const startTime = Date.now();
-    const TIME_BUDGET = 8000;
+    const TIME_BUDGET = 10000;
 
     while (!reachedThreshold) {
       if (Date.now() - startTime > TIME_BUDGET) {
