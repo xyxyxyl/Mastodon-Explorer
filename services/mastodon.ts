@@ -9,10 +9,15 @@ export class MastodonService {
     this.token = token;
   }
 
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private async fetchApi<T>(
     endpoint: string,
     params: Record<string, string> = {},
-    useAuth: boolean = true
+    useAuth: boolean = true,
+    retryCount = 0
   ): Promise<T> {
     const url = new URL(`https://${this.instance}/api/v1/${endpoint}`);
     Object.keys(params).forEach((key) =>
@@ -22,20 +27,29 @@ export class MastodonService {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-
     if (this.token && useAuth) {
       headers["Authorization"] = `Bearer ${this.token}`;
     }
 
     const response = await fetch(url.toString(), { headers });
 
+    if (response.status === 429 && retryCount < 2) {
+      const retryAfter = response.headers.get("Retry-After");
+      const waitTime = retryAfter
+        ? parseInt(retryAfter) * 1000
+        : Math.pow(2, retryCount) * 1000;
+      console.warn(`Rate limit hit, retrying in ${waitTime}ms...`);
+      await this.sleep(waitTime);
+      return this.fetchApi<T>(endpoint, params, useAuth, retryCount + 1);
+    }
+
     if (!response.ok) {
       const errorData = await response
         .json()
         .catch(() => ({ error: "Unknown error" }));
-      const errorMessage =
-        errorData.error || `HTTP error! status: ${response.status}`;
-      const error: any = new Error(errorMessage);
+      const error: any = new Error(
+        errorData.error || `HTTP error! status: ${response.status}`
+      );
       error.status = response.status;
       throw error;
     }
@@ -62,9 +76,7 @@ export class MastodonService {
     maxId?: string,
     limit: number = 40
   ): Promise<{ statuses: MastodonStatus[]; fellBack: boolean }> {
-    const params: Record<string, string> = {
-      limit: limit.toString(),
-    };
+    const params: Record<string, string> = { limit: limit.toString() };
     if (maxId) params.max_id = maxId;
 
     try {
@@ -75,7 +87,6 @@ export class MastodonService {
       return { statuses, fellBack: false };
     } catch (error: any) {
       if (error.status === 403 || error.status === 401) {
-        console.warn("权限不足以访问 read:statuses，正在降级抓取公开动态...");
         const statuses = await this.fetchApi<MastodonStatus[]>(
           `accounts/${accountId}/statuses`,
           params,
@@ -87,9 +98,6 @@ export class MastodonService {
     }
   }
 
-  /**
-   * Fetches statuses until the threshold date and reports permission fallback.
-   */
   async getStatusesUntil(
     accountId: string,
     untilDate: Date,
@@ -104,27 +112,30 @@ export class MastodonService {
     let allFilteredStatuses: MastodonStatus[] = [];
     let maxId: string | undefined = startId;
     let reachedThreshold = false;
-    let hasMore = true;
     let totalFetched = 0;
     let wasFellBack = false;
 
-    while (hasMore && !reachedThreshold) {
+    const startTime = Date.now();
+    const TIME_BUDGET = 8000;
+
+    while (!reachedThreshold) {
+      if (Date.now() - startTime > TIME_BUDGET) {
+        console.warn("Time budget exceeded, returning partial results.");
+        break;
+      }
+
       const { statuses: batch, fellBack } = await this.getStatusesPage(
         accountId,
         maxId
       );
       if (fellBack) wasFellBack = true;
-
-      if (batch.length === 0) {
-        hasMore = false;
-        break;
-      }
+      if (batch.length === 0) break;
 
       maxId = batch[batch.length - 1].id;
       totalFetched += batch.length;
 
       const originalPosts = batch.filter((s: any) => !s.reblog);
-      allFilteredStatuses = [...allFilteredStatuses, ...originalPosts];
+      allFilteredStatuses.push(...originalPosts);
 
       const oldestInBatch = new Date(batch[batch.length - 1].created_at);
       if (oldestInBatch < untilDate) {
@@ -132,10 +143,11 @@ export class MastodonService {
       }
 
       if (onProgress) onProgress(allFilteredStatuses.length);
+      if (batch.length < 40) break;
 
-      if (batch.length < 40) hasMore = false;
+      if (totalFetched > 5000) break;
 
-      if (totalFetched > 8000) break;
+      await this.sleep(Math.floor(Math.random() * 300) + 200);
     }
 
     return {
