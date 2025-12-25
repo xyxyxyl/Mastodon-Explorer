@@ -683,7 +683,7 @@ const App: React.FC = () => {
                 {isExploringMore
                   ? `正在获取 (${fetchCount})...`
                   : hasMoreToFetchExplore
-                  ? "继续抓取剩余动态"
+                  ? "继续加载剩余动态"
                   : "加载更多历史动态（ 2 个月）"}
               </button>
 
@@ -757,7 +757,7 @@ const App: React.FC = () => {
 
                   <div className="space-y-1">
                     <p className="text-[11px] leading-relaxed text-indigo-900 font-medium">
-                      单次抓取上限为 12
+                      单次抓取响应时间上限为 8
                       秒。若嘟文量较大，抓取将自动暂停，需再次点击按钮以继续。
                     </p>
                     <p className="text-[11px] text-indigo-600 font-bold">
