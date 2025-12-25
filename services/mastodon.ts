@@ -108,6 +108,7 @@ export class MastodonService {
     lastId?: string;
     reachedThreshold: boolean;
     fellBack: boolean;
+    isTimedOut: boolean;
   }> {
     let allFilteredStatuses: MastodonStatus[] = [];
     let maxId: string | undefined = startId;
@@ -116,7 +117,7 @@ export class MastodonService {
     let wasFellBack = false;
 
     const startTime = Date.now();
-    const TIME_BUDGET = 10000;
+    const TIME_BUDGET = 8000;
 
     while (!reachedThreshold) {
       if (Date.now() - startTime > TIME_BUDGET) {
@@ -129,7 +130,9 @@ export class MastodonService {
         maxId
       );
       if (fellBack) wasFellBack = true;
-      if (batch.length === 0) break;
+      if (batch.length === 0) {
+        reachedThreshold = true;
+      }
 
       maxId = batch[batch.length - 1].id;
       totalFetched += batch.length;
@@ -140,14 +143,15 @@ export class MastodonService {
       const oldestInBatch = new Date(batch[batch.length - 1].created_at);
       if (oldestInBatch < untilDate) {
         reachedThreshold = true;
+        break;
+      }
+      if (onProgress) onProgress(allFilteredStatuses.length);
+      if (batch.length < 40) {
+        reachedThreshold = true;
+        break;
       }
 
-      if (onProgress) onProgress(allFilteredStatuses.length);
-      if (batch.length < 40) break;
-
-      if (totalFetched > 5000) break;
-
-      await this.sleep(Math.floor(Math.random() * 300) + 200);
+      await this.sleep(Math.floor(Math.random() * 200) + 100);
     }
 
     return {
@@ -155,6 +159,7 @@ export class MastodonService {
       lastId: maxId,
       reachedThreshold,
       fellBack: wasFellBack,
+      isTimedOut: !reachedThreshold,
     };
   }
 
