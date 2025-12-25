@@ -42,7 +42,6 @@ const App: React.FC = () => {
   // Login Form States
   const [instanceInput, setInstanceInput] = useState(auth?.instance || "");
   const [tokenInput, setTokenInput] = useState(auth?.token || "");
-  const [fetchAllOnStart, setFetchAllOnStart] = useState(false);
   const [testResult, setTestResult] = useState<{
     status: "idle" | "testing" | "success" | "error";
     message?: string;
@@ -63,12 +62,7 @@ const App: React.FC = () => {
       setAccount(acc);
 
       const thresholdDate = new Date();
-      if (fetchAllOnStart) {
-        thresholdDate.setFullYear(thresholdDate.getFullYear() - 20);
-      } else {
-        thresholdDate.setMonth(thresholdDate.getMonth() - 3);
-      }
-
+      thresholdDate.setMonth(thresholdDate.getMonth() - 3);
       const {
         statuses: initialPosts,
         lastId: newLastId,
@@ -90,7 +84,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [mastodonService, auth, fetchAllOnStart]);
+  }, [mastodonService, auth]);
 
   useEffect(() => {
     if (auth && !account) {
@@ -345,8 +339,19 @@ const App: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700">
                 访问令牌 (Access Token)
               </label>
+              <input
+                type="password"
+                placeholder="粘贴令牌"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                className="w-full mt-2 px-4 py-2.5 rounded-lg border border-gray-200 focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-sm"
+                required
+              />
+            </div>
+
+            <div className="mt-6">
               <div className="mt-1">
-                <p className="text-[10px] text-indigo-500 font-bold leading-tight flex items-start gap-1">
+                <p className="text-[12px] text-indigo-500 font-bold leading-tight flex items-start gap-1">
                   <svg
                     className="w-3 h-3 mt-0.5 shrink-0"
                     fill="currentColor"
@@ -359,37 +364,12 @@ const App: React.FC = () => {
                     />
                   </svg>
                   <span>
-                    若token仅包括read:accounts权限则只抓取公开嘟文，如包含read:statuses则抓取全部嘟文
+                    若令牌仅包括read:accounts权限则只抓取公开嘟文，如包含read:statuses则一并抓取非公开嘟文
                   </span>
                 </p>
               </div>
-              <input
-                type="password"
-                placeholder="粘贴令牌"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                className="w-full mt-2 px-4 py-2.5 rounded-lg border border-gray-200 focus:ring-2 focus:ring-indigo-500 transition-all outline-none text-sm"
-                required
-              />
-            </div>
-            <div className="py-1">
-              <div className="flex items-center gap-2 mb-1">
-                <input
-                  type="checkbox"
-                  id="fetchAll"
-                  checked={fetchAllOnStart}
-                  onChange={(e) => setFetchAllOnStart(e.target.checked)}
-                  className="w-4 h-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded cursor-pointer"
-                />
-                <label
-                  htmlFor="fetchAll"
-                  className="text-sm text-gray-600 cursor-pointer select-none font-medium"
-                >
-                  自动抓取全部历史动态
-                </label>
-              </div>
               <div className="mt-1">
-                <p className="text-[10px] text-indigo-500 font-bold leading-tight flex items-start gap-1">
+                <p className="text-[12px] text-indigo-500 font-bold leading-tight flex items-start gap-1">
                   <svg
                     className="w-3 h-3 mt-0.5 shrink-0"
                     fill="currentColor"
@@ -401,10 +381,11 @@ const App: React.FC = () => {
                       clipRule="evenodd"
                     />
                   </svg>
-                  <span>初始同步近 3 个月</span>
+                  <span>初始同步近 3 个月嘟文</span>
                 </p>
               </div>
             </div>
+
             <div className="pt-2 flex flex-col gap-3">
               <button
                 type="button"
@@ -718,6 +699,24 @@ const App: React.FC = () => {
                 )}
                 抓取全部历史记录
               </button>
+              <div className="mt-2 px-2">
+                <p className="text-xs font-bold mb-1 flex items-center gap-2 text-indigo-700">
+                  <svg
+                    className="w-8 h-8 text-indigo-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  历史记录抓上限为8000条嘟文，如账号嘟文量较大，暂时无法全部抓取。统计数据单独设置抓取上限功能正在开发中。
+                </p>
+              </div>
             </div>
           </aside>
 
@@ -978,11 +977,15 @@ const App: React.FC = () => {
 
       <button
         onClick={scrollToTop}
-        className={`fixed bottom-8 right-8 z-[50] p-4 bg-indigo-600 text-white rounded-full shadow-2xl transition-all duration-300 transform ${
-          showBackToTop
-            ? "opacity-100 translate-y-0"
-            : "opacity-0 translate-y-10 pointer-events-none"
-        }`}
+        className={`fixed bottom-8 right-8 z-[50]
+    p-3 bg-indigo-600 text-white rounded-full
+    shadow-2xl transition-all duration-300 transform
+    hover:scale-110
+    ${
+      showBackToTop
+        ? "opacity-100 translate-y-0"
+        : "opacity-0 translate-y-10 pointer-events-none"
+    }`}
       >
         <svg
           className="w-6 h-6"
@@ -993,7 +996,7 @@ const App: React.FC = () => {
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeWidth="2"
+            strokeWidth="2.5"
             d="M5 10l7-7m0 0l7 7m-7-7v18"
           />
         </svg>

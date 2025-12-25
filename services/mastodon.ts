@@ -135,7 +135,7 @@ export class MastodonService {
 
       if (batch.length < 40) hasMore = false;
 
-      if (totalFetched > 10000) break;
+      if (totalFetched > 8000) break;
     }
 
     return {
