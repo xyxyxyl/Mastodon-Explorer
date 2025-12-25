@@ -1,4 +1,3 @@
-
 export interface MastodonAccount {
   id: string;
   username: string;
@@ -42,6 +41,6 @@ export interface AuthState {
 
 export interface AIAnalysisResult {
   summary: string;
-  sentiment: 'positive' | 'negative' | 'neutral';
+  sentiment: "positive" | "negative" | "neutral";
   keyTopics: string[];
 }

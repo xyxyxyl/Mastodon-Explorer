@@ -19,8 +19,8 @@ const App: React.FC = () => {
   const [account, setAccount] = useState<MastodonAccount | null>(null);
   const [rawStatuses, setRawStatuses] = useState<MastodonStatus[]>([]);
   const [lastId, setLastId] = useState<string | undefined>();
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFetchingAll, setIsFetchingAll] = useState(false); // 新增;
+  const [isExploringMore, setisExploringMore] = useState(false);
+  const [isFetchingAll, setIsFetchingAll] = useState(false);
   const [hasReadStatuses, setHasReadStatuses] = useState<boolean>(true);
   const [fetchCount, setFetchCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +38,8 @@ const App: React.FC = () => {
   const [isMonthlyModalOpen, setIsMonthlyModalOpen] = useState(false);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const [showOriginalOnly, setShowOriginalOnly] = useState(false);
+  const [hasMoreToFetchAll, setHasMoreToFetchAll] = useState(false);
+  const [hasMoreToFetchExplore, setHasMoreToFetchExplore] = useState(false);
 
   // Login Form States
   const [instanceInput, setInstanceInput] = useState(auth?.instance || "");
@@ -54,7 +56,7 @@ const App: React.FC = () => {
 
   const fetchInitialData = useCallback(async () => {
     if (!mastodonService || !auth) return;
-    setIsLoading(true);
+    setisExploringMore(true);
     setFetchCount(0);
     setError(null);
     try {
@@ -62,7 +64,7 @@ const App: React.FC = () => {
       setAccount(acc);
 
       const thresholdDate = new Date();
-      thresholdDate.setMonth(thresholdDate.getMonth() - 3);
+      thresholdDate.setMonth(thresholdDate.getMonth() - 2);
       const {
         statuses: initialPosts,
         lastId: newLastId,
@@ -82,7 +84,7 @@ const App: React.FC = () => {
         handleLogout();
       }
     } finally {
-      setIsLoading(false);
+      setisExploringMore(false);
     }
   }, [mastodonService, auth]);
 
@@ -115,10 +117,6 @@ const App: React.FC = () => {
     localStorage.removeItem("mastodon_auth");
   };
 
-  /**
-   * 核心基础过滤逻辑：
-   * 在全局数据层执行。如果开启“仅原创”，则过滤掉对他人的回复帖，但保留原创帖和对自己嘟文的回复（线程）。
-   */
   const baseStatuses = useMemo(() => {
     if (!showOriginalOnly || !account) return rawStatuses;
     return rawStatuses.filter((s) => {
@@ -211,9 +209,10 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const handleExploreMore = async (months: number = 3) => {
-    if (!mastodonService || !account || isLoading) return;
-    setIsLoading(true);
+  const handleExploreMore = async (months: number = 2) => {
+    if (!mastodonService || !account || isExploringMore) return;
+    setisExploringMore(true);
+    setHasMoreToFetchExplore(false);
     try {
       const oldestDate =
         rawStatuses.length > 0
@@ -225,39 +224,53 @@ const App: React.FC = () => {
         statuses: moreStatuses,
         lastId: newLastId,
         fellBack,
+        isTimedOut,
       } = await mastodonService.getStatusesUntil(
         account.id,
         threshold,
         lastId,
         (count) => setFetchCount(rawStatuses.length + count)
       );
-      setRawStatuses((prev) => [...prev, ...moreStatuses]);
+      setRawStatuses((prev) => {
+        const next = [...prev];
+        next.push(...moreStatuses);
+        return next;
+      });
       setLastId(newLastId);
+      setHasMoreToFetchExplore(isTimedOut);
       if (fellBack) setHasReadStatuses(false);
     } catch (err: any) {
       setError("加载更多失败");
     } finally {
-      setIsLoading(false);
+      setisExploringMore(false);
     }
   };
 
   const handleFetchAllHistory = async () => {
-    if (!mastodonService || !account || isLoading || isFetchingAll) return;
+    if (!mastodonService || !account || isExploringMore || isFetchingAll)
+      return;
     setIsFetchingAll(true);
+    setHasMoreToFetchAll(false);
     try {
       const threshold = new Date(0);
       const {
         statuses: moreStatuses,
         lastId: newLastId,
         fellBack,
+        isTimedOut,
       } = await mastodonService.getStatusesUntil(
         account.id,
         threshold,
         lastId,
         (count) => setFetchCount(rawStatuses.length + count)
       );
-      setRawStatuses((prev) => [...prev, ...moreStatuses]);
+      setRawStatuses((prev) => {
+        const next = [...prev];
+        next.push(...moreStatuses);
+        return next;
+      });
       setLastId(newLastId);
+      setHasMoreToFetchAll(isTimedOut);
       if (fellBack) setHasReadStatuses(false);
     } catch (err: any) {
       setError("获取全部历史失败");
@@ -381,7 +394,7 @@ const App: React.FC = () => {
                       clipRule="evenodd"
                     />
                   </svg>
-                  <span>初始同步近 3 个月嘟文</span>
+                  <span>初始同步近 2 个月嘟文</span>
                 </p>
               </div>
             </div>
@@ -431,7 +444,7 @@ const App: React.FC = () => {
   }
 
   // 2. 初始同步中：显示居中加载组件
-  if (isLoading && rawStatuses.length === 0) {
+  if (isExploringMore && rawStatuses.length === 0) {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-8 relative overflow-hidden">
         {/* 背景装饰 */}
@@ -460,10 +473,10 @@ const App: React.FC = () => {
           </div>
 
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            正在同步动态数据
+            正在同步动态
           </h2>
           <p className="text-gray-500 mb-6 max-w-sm">
-            正在从 Mastodon 实例获取历史嘟文，请稍等片刻...
+            正在从 Mastodon 实例获取历史嘟文
           </p>
 
           <div className="inline-flex items-center gap-2 bg-indigo-50 px-6 py-3 rounded-2xl">
@@ -481,7 +494,6 @@ const App: React.FC = () => {
     );
   }
 
-  // 3. 已有数据：显示主面板
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
       <header className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
@@ -540,7 +552,7 @@ const App: React.FC = () => {
           <aside className="lg:col-span-3 flex flex-col gap-4 sticky top-24 max-h-[calc(100vh-120px)] overflow-y-auto custom-scrollbar pr-2">
             <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm max-h-[30vh] overflow-y-auto custom-scrollbar">
               <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-4 px-2">
-                历史回顾
+                回顾
               </h3>
               <div className="space-y-1">
                 <button
@@ -644,14 +656,14 @@ const App: React.FC = () => {
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => handleExploreMore(3)}
-                disabled={isLoading || isFetchingAll}
+                disabled={isExploringMore || isFetchingAll}
                 className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold border transition-all ${
-                  isLoading
+                  isExploringMore
                     ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed"
                     : "bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50 hover:border-indigo-200 shadow-sm"
                 }`}
               >
-                {isLoading ? (
+                {isExploringMore ? (
                   <div className="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
                 ) : (
                   <svg
@@ -668,14 +680,18 @@ const App: React.FC = () => {
                     />
                   </svg>
                 )}
-                探索更多 3 个月历史
+                {isExploringMore
+                  ? `正在获取 (${fetchCount})...`
+                  : hasMoreToFetchExplore
+                  ? "继续加载剩余动态"
+                  : "加载更多历史动态（ 2 个月）"}
               </button>
 
               <button
                 onClick={handleFetchAllHistory}
-                disabled={isLoading || isFetchingAll}
+                disabled={isExploringMore || isFetchingAll}
                 className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold transition-all ${
-                  isLoading || isFetchingAll
+                  isExploringMore || isFetchingAll
                     ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                     : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-md"
                 }`}
@@ -697,12 +713,36 @@ const App: React.FC = () => {
                     />
                   </svg>
                 )}
-                抓取全部历史记录
+                {isFetchingAll
+                  ? `正在获取 (${fetchCount})...`
+                  : hasMoreToFetchAll
+                  ? "继续抓取剩余动态"
+                  : "抓取全部历史动态"}
               </button>
-              <div className="mt-2 px-2">
-                <p className="text-xs font-bold mb-1 flex items-center gap-2 text-indigo-700">
+              {!isFetchingAll && hasMoreToFetchAll && (
+                <div className="mt-2 px-2 py-2 bg-indigo-50 border border-indigo-100 rounded-lg animate-in fade-in duration-500">
+                  <p className="text-xs font-bold mb-1 flex items-center gap-2 text-indigo-700">
+                    <svg
+                      className="w-8 h-8 text-indigo-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    由于历史动态较多，为防止响应超时，已暂停抓取，可点击“继续抓取剩余历史”尝试获取更多嘟文。
+                  </p>
+                </div>
+              )}
+              <div className="mt-4 px-2">
+                <div className="flex gap-2 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl">
                   <svg
-                    className="w-8 h-8 text-indigo-600"
+                    className="w-4 h-4 text-indigo-500 mt-0.5 shrink-0"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -714,8 +754,18 @@ const App: React.FC = () => {
                       d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  历史记录抓上限为8000条嘟文，如账号嘟文量较大，暂时无法全部抓取。统计数据单独设置抓取上限功能正在开发中。
-                </p>
+
+                  <div className="space-y-1">
+                    <p className="text-[11px] leading-relaxed text-indigo-900 font-medium">
+                      单次抓取响应时间上限为 8
+                      秒。若嘟文量较大，抓取将自动暂停，需再次点击按钮以继续。
+                    </p>
+                    <p className="text-[11px] text-indigo-600 font-bold">
+                      提示：历史动态极多的账户，建议优先使用 Mastodon
+                      官方存档工具导出，配合存档查看工具查看。
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </aside>
@@ -809,14 +859,14 @@ const App: React.FC = () => {
               {filteredStatuses.map((status) => (
                 <StatusCard key={status.id} status={status} />
               ))}
-              {filteredStatuses.length === 0 && !isLoading && (
+              {filteredStatuses.length === 0 && !isExploringMore && (
                 <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-gray-300">
                   <p className="text-gray-400 text-sm">
                     此筛选条件下没有任何嘟文。
                   </p>
                 </div>
               )}
-              {isLoading && rawStatuses.length > 0 && (
+              {isExploringMore && rawStatuses.length > 0 && (
                 <div className="flex items-center justify-center py-8">
                   <div className="w-8 h-8 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
                 </div>
